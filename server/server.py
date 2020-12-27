@@ -3,6 +3,7 @@ import logging
 import sys
 from aiohttp import web
 import aiohttp
+import asyncio
 
 from august_lock import get_lock
 
@@ -15,16 +16,40 @@ API_KEY = ''
 async def hello(request):
   return {"hello": "Welcome to Mat & Audry's"}
 
-@routes.get('/open')
-async def open_lock(request):
+async def load_lock(session):
+  try:
+    lock = await get_lock(session, TOKEN)
+  except aiohttp.client.ClientResponseError as ex:
+    logger.debug("Failed to get lock with status %s", ex.status)
+    if ex.status == 401:
+      raise web.HTTPForbidden(text="Invalid Smartthings token")
+    raise ex
+  if not lock:
+    raise web.HTTPServiceUnavailable(text="No device with locking capabilities found")
+  return lock
+
+async def refresh_lock(lock):
+  await lock.status.refresh()
+  return {"status": lock.status.values}
+
+async def process_lock(unlock):
   async with aiohttp.ClientSession() as session:
-    try:
-      lock = await get_lock(session, TOKEN)
-    except aiohttp.client.ClientResponseError as ex:
-      logger.debug("Failed to get lock with status %s", ex.status)
-      if ex.status == 401:
-        raise web.HTTPForbidden(text="Invalid Smartthings token")
-  return {"hello": "Welcome to Mat & Audry's"}
+    lock = await load_lock(session)
+    fn = lock.unlock
+    if not unlock:
+      logger.debug("Locking")
+      fn = lock.lock
+    await fn()
+    await asyncio.sleep(5)
+    return await refresh_lock(lock)
+
+@routes.get('/open')
+async def open_lock(_):
+  return await process_lock(unlock=True)
+
+@routes.get('/close')
+async def open_lock(_):
+  return await process_lock(unlock=False)
 
 @web.middleware
 async def all_json(request, handler):
