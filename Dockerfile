@@ -4,4 +4,4 @@ RUN pip install -r /tmp/requirements.txt
 RUN rm /tmp/requirements.txt
 RUN mkdir /app
 COPY server /app
-WORKDIR /app/server
+WORKDIR /app

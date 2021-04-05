@@ -30,7 +30,7 @@ async def load_lock(session):
 
 async def refresh_lock(lock):
   await lock.status.refresh()
-  return {"status": lock.status.values}
+  return {"status": lock.status.lock}
 
 async def process_lock(unlock):
   async with aiohttp.ClientSession() as session:
@@ -51,6 +51,12 @@ async def open_lock(_):
 async def open_lock(_):
   return await process_lock(unlock=False)
 
+@routes.get('/status')
+async def get_lock_status(_):
+  async with aiohttp.ClientSession() as session:
+    lock = await load_lock(session)
+    return await refresh_lock(lock)
+
 @web.middleware
 async def all_json(request, handler):
   response = await handler(request)
@@ -59,7 +65,7 @@ async def all_json(request, handler):
 @web.middleware
 async def api_key_auth(request, handler):
   logger.debug(API_KEY, request.headers)
-  if request.headers.get('Authorization') != API_KEY:
+  if request.headers.get('API-Key') != API_KEY:
     raise web.HTTPForbidden(text="Invalid API key")
   return await handler(request)
 
@@ -77,6 +83,11 @@ if __name__ == "__main__":
 
   args = parser.parse_args()
 
+  # Set up logging
+  if args.debug:
+    logging.basicConfig(level=logging.DEBUG)
+    logging.debug("Logging set to debug level")
+  logger = logging.getLogger(__name__)
   # Checks before starting
   if not args.token:
     logger.critical("SmartThings token not provided, shutting down")
@@ -88,11 +99,6 @@ if __name__ == "__main__":
   API_KEY = args.key
   TOKEN = args.token
 
-  # Set up logging
-  if args.debug:
-    logging.basicConfig(level=logging.DEBUG)
-    logging.debug("Logging set to debug level")
-  logger = logging.getLogger(__name__)
 
   app = web.Application(middlewares=[api_key_auth, all_json])
   app.add_routes(routes)
